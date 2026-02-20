@@ -1,18 +1,68 @@
 <script setup lang="ts">
-  import { computed, reactive, ref } from 'vue';
+  import { computed, reactive, ref, watchEffect } from 'vue';
   import { RadiationData } from './types/RadiationData';
   import { GeoLocation } from './types/GeoLocation';
-import ChartComponent from './components/ui/ChartComponent.vue';
+  import ChartComponent from './components/ui/ChartComponent.vue';
+  import { computeMonthlyAverageRadiation } from './utils/computeMonthlyAverageRadiation';
+  import { computeMonthlyEnergyOutput } from './utils/computeMonthlyEnergyOutput';
 
+  // Model Data for user location
   const location: GeoLocation = reactive<GeoLocation>({
     lat: null,
     lng: null
   })
 
+  // Model Data for solar panel details and fetched radiation data
+  const radiationData = ref<RadiationData | null>(null)
+  const systemSize = ref<number | null>(null)
+  const tiltAngle = ref<number>(0) // Default tilt angle, can be made user input later
+  const panelEfficiency = ref<number | null>(null)
+  const orientation = ref<string>("")
+
+  // Some state predicates for UI logic
   const loading = ref<boolean>(false)
   const isLocationSet = computed(() => location.lat != null && location.lng != null)
-  const radiationData = ref<RadiationData | null>(null)
-  
+  const isPanelFormValid = computed(() => 
+    Boolean(
+      isLocationSet.value &&
+      radiationData.value &&
+      // Check if the panel details are valid number and not NaN using typeof check
+      typeof systemSize.value === 'number' &&
+      typeof panelEfficiency.value === 'number' &&
+      typeof tiltAngle.value === 'number' &&
+
+      orientation.value !== ""
+    )
+  )
+
+
+  // Computed properties to process radiation data and calculate energy output
+  const monthlyAverageRadiation = computed(() => {
+    if (!radiationData.value) return null
+    return computeMonthlyAverageRadiation(radiationData.value.hourly)
+  })
+
+  const monthlyEnergyOutput = computed(() => {
+    if (!monthlyAverageRadiation.value || !isPanelFormValid.value) return [];
+
+    const tiltDiff = Math.abs((tiltAngle.value || 0) - Math.abs(location.lat || 0));
+    
+    return computeMonthlyEnergyOutput(
+      monthlyAverageRadiation.value,
+      systemSize.value!,
+      panelEfficiency.value!,
+      orientation.value,
+      tiltDiff
+    )
+  });
+
+  const yearlyEnergyOutput = computed(() => {
+    if (monthlyEnergyOutput.value.length === 0) return 0;
+    return monthlyEnergyOutput.value.reduce((sum, item) => sum + item.energy, 0);
+  });
+
+
+  // Function to get user location using Geolocation API
   function getUserLocation() {
     if(navigator.geolocation) {
       loading.value = true
@@ -30,13 +80,12 @@ import ChartComponent from './components/ui/ChartComponent.vue';
     }
   }
 
-  // TODO: Handle API errors and edge cases (e.g., no data available for location)
   async function fetchLocationSunRadiation() {
-    if (!isLocationSet) {
+    if (!isLocationSet.value) {
       throw new Error("Location not set")
     }
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${location.lat}&longitude=${location.lng}&hourly=shortwave_radiation,direct_normal_irradiance`
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${location.lat}&longitude=${location.lng}&start_date=2025-01-01&end_date=2026-01-31&hourly=shortwave_radiation&timezone=auto`
     const response = await fetch(url)
 
     if (!response.ok) {
@@ -45,7 +94,7 @@ import ChartComponent from './components/ui/ChartComponent.vue';
 
     const data: RadiationData = await response.json()
     radiationData.value = data
-}
+  }
 
 </script>
 <template>
@@ -62,7 +111,7 @@ import ChartComponent from './components/ui/ChartComponent.vue';
       </div>
     </header>
 
-    <div class="max-w-6xl mx-auto grid grid-cols-1 xl:grid-cols-3 gap-8">
+    <div class="max-w-6xl mx-auto grid grid-cols-2 xl:grid-cols-2 gap-8">
 
       <div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200 space-y-6">
 
@@ -124,9 +173,72 @@ import ChartComponent from './components/ui/ChartComponent.vue';
 
       </div>
 
-      <div class="xl:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 min-h-[400px]">
+      
+    <div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200 space-y-6">
 
-        <GMapMap
+      <h2 class="text-xl font-semibold text-gray-800">
+        Solar Panel Details
+      </h2>
+
+      <div class="space-y-4">
+
+          <!-- System Size -->
+          <div class="flex flex-col space-y-1">
+            <label class="text-sm text-gray-600">System Size (kWp)</label>
+            <input
+              v-model.number="systemSize"
+              type="number"
+              step="0.1"
+              placeholder="e.g. 5"
+              class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400"
+            />
+          </div>
+
+          <div class="flex flex-col space-y-1">
+            <label class="text-sm text-gray-600">Tilt Angle (degrees)</label>
+            <input
+              v-model.number="tiltAngle"
+              type="number"
+              step="1"
+              placeholder="e.g. 5"
+              class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400"
+            />
+          </div>
+
+          <!-- Panel Efficiency -->
+          <div class="flex flex-col space-y-1">
+            <label class="text-sm text-gray-600">Panel Efficiency (%)</label>
+            <input
+              v-model.number="panelEfficiency"
+              type="number"
+              step="0.1"
+              placeholder="e.g. 20"
+              class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400"
+            />
+          </div>
+
+          <!-- Orientation -->
+          <div class="flex flex-col space-y-1">
+            <label class="text-sm text-gray-600">Orientation</label>
+            <select
+              v-model="orientation"
+              class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-gray-400"
+            >
+              <option disabled value="">Select orientation</option>
+              <option>South</option>
+              <option>South-East</option>
+              <option>South-West</option>
+              <option>East</option>
+              <option>West</option>
+            </select>
+          </div>
+        </div>
+  </div>
+
+
+      <div class="col-span-3 bg-white rounded-lg shadow-sm border border-gray-200 min-h-[400px]">
+
+        <GMapMap  
           v-if="isLocationSet"
           :key="location.lat + '-' + location.lng"
           :center="{ lat: location.lat!, lng: location.lng! }"
@@ -147,16 +259,15 @@ import ChartComponent from './components/ui/ChartComponent.vue';
 
     </div>
 
-    <!-- CHART SECTION -->
     <div
       v-if="radiationData"
       class="max-w-6xl mx-auto mt-12 bg-white rounded-lg shadow-sm p-6 border border-gray-200"
     >
       <h2 class="text-xl font-semibold text-gray-800 mb-6">
-        Solar Radiation Analysis
+        Solar Radiation Analysis for ({{ location.lat }}, {{ location.lng }})
       </h2>
 
-      <ChartComponent :radiation-data="radiationData" />
+      <ChartComponent :monthly-average-radiation="monthlyAverageRadiation" :yearly-energy-output="yearlyEnergyOutput" />
     </div>
 
   </main>

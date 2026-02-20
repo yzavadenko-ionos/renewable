@@ -1,75 +1,77 @@
 <script setup lang="ts">
-import { RadiationData } from '@/types/RadiationData'
 import { computed } from 'vue';
 
-const { radiationData } = defineProps<{ radiationData: RadiationData | null }>()
-
-const options = {
-  series: [
-    {
-      name: 'Shortwave Radiation (W/m²)',
-      data: radiationData.hourly.shortwave_radiation,
-    },
-  ],
-  chart: {
-    type: 'area',
-    height: 350,
-    zoom: {
-      enabled: true,
-    },
-  },
-  dataLabels: {
-    enabled: false,
-  },
-  stroke: {
-    curve: 'smooth', 
-  },
-  title: {
-    text: `Radiation Levels at ${radiationData.latitude.toFixed(
-      2
-    )}, ${radiationData.longitude.toFixed(2)}`,
-    align: 'left',
-  },
-  subtitle: {
-    text: 'Hourly Radiation',
-    align: 'left',
-  },
-  labels: radiationData.hourly.time, 
-  xaxis: {
-    type: 'datetime',
-    title: {
-      text: 'Time',
-    },
-  },
-  yaxis: {
-    opposite: false,
-    title: {
-      text: 'Radiation (W/m²)',
-    },
-  },
-  legend: {
-    horizontalAlign: 'left',
-  },
-  tooltip: {
-    x: {
-      format: 'dd MMM yyyy HH:mm', 
-    },
-  },
+type MonthlyAverageRadiation = {
+  month: string
+  averageRadiation: number
 }
 
-const series = computed(() => [
+type Props = {
+  monthlyAverageRadiation: MonthlyAverageRadiation[]
+  yearlyEnergyOutput: number
+}
+
+const { monthlyAverageRadiation, yearlyEnergyOutput } = defineProps<Props>()
+
+const series = [
   {
-    name: 'Shortwave Radiation (W/m²)',
-    data: radiationData.hourly.shortwave_radiation,
+    name: 'Average Shortwave Radiation (W/m²)',
+    data: monthlyAverageRadiation.map(m => m.averageRadiation)
+  }
+]
+
+// X-axis labels: month names
+const labels = monthlyAverageRadiation.map(m => m.month)
+
+const options = computed(() => ({
+  chart: {
+    type: 'area',
+    height: 400,
   },
-])
+  plotOptions: {
+    bar: {
+      horizontal: false,
+      columnWidth: '50%',
+    }
+  },
+  dataLabels: {
+    enabled: true,
+    formatter: (val: number) => val.toFixed(2)
+  },
+  xaxis: {
+    categories: labels,
+    title: {
+      text: 'Month'
+    }
+  },
+  yaxis: {
+    title: {
+      text: 'Average Radiation (W/m²)'
+    }
+  },
+  title: {
+    text: 'Monthly Average Shortwave Radiation',
+    align: 'center',
+  },
+   subtitle: {
+    text: `Yearly Energy Yield: ${yearlyEnergyOutput.toFixed(2)} kWh`,
+    align: 'center',
+    style: {
+      fontSize: '14px',
+      fontWeight: 600
+    }
+  },
+  tooltip: {
+    y: {
+      formatter: (val: number) => `${val.toFixed(2)} W/m²`
+    }
+  }
+}))
 
 </script>
 
 <template>
     <apexchart
-        type="area"
-        height="600"
         :options="options"
         :series="series"
     />
